@@ -57,7 +57,7 @@ class LMRCBTModel(nn.Module):
 
         self.combined_dim = self.d_l + self.d_v + self.d_a
 
-        self.proj_a = nn.Conv1d(self.orig_d_a, self.d_a, kernel_size=3, padding=0, bias=False)
+        self.proj_a = nn.Conv1d(self.orig_d_a, self.d_a, kernel_size=5, padding=0, bias=False)
         self.proj_v = nn.Conv1d(self.orig_d_v, self.d_v, kernel_size=3, padding=0, bias=False)
 
         self.lstm = nn.LSTM(input_size=self.orig_d_l, hidden_size=self.d_l//2, num_layers=2, bidirectional=True, dropout=0.5, batch_first=True)

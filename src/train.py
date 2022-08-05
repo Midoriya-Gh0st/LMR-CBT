@@ -11,13 +11,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import os
 import pickle
 
-from sklearn.metrics import classification_report
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import precision_recall_fscore_support
-from sklearn.metrics import accuracy_score, f1_score
 from src.eval_metrics import *
-import torch_utils as tu 
-device = torch.device('cuda:4')
+# import torch_utils as tu
+device = torch.device('cuda:0')
 
 ####################################################################
 #
@@ -36,11 +32,11 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader):
     print(get_n_params(model))
 
     if hyp_params.use_cuda:
-        model = model.to(device)
+        model = model.cuda()
 
-    optimizer = getattr(optim, hyp_params.optim)(model.parameters(), lr=hyp_params.lr) # 调参的重点对象
+    optimizer = getattr(optim, hyp_params.optim)(model.parameters(), lr=hyp_params.lr)  # 调参的重点对象
     # optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-05, betas=(0.9, 0.98), eps=1e-9)
-    criterion = getattr(nn, hyp_params.criterion)() # 调参的重点对象
+    criterion = getattr(nn, hyp_params.criterion)()  # 调参的重点对象
     # criterion = tu.LabelSmoothingCrossEntropy()
     # criterion_test = nn.CrossEntropyLoss()
     if hyp_params.aligned or hyp_params.model=='LMRCBT':
@@ -55,7 +51,7 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader):
             ctc_a2l_module, ctc_v2l_module = ctc_a2l_module.cuda(), ctc_v2l_module.cuda()
         ctc_a2l_optimizer = getattr(optim, hyp_params.optim)(ctc_a2l_module.parameters(), lr=hyp_params.lr)
         ctc_v2l_optimizer = getattr(optim, hyp_params.optim)(ctc_v2l_module.parameters(), lr=hyp_params.lr)
-    
+
     scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=hyp_params.when, factor=0.1, verbose=True)
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hyp_params.num_epochs * len(train_loader.dataset) // hyp_params.batch_size)
     settings = {'model': model,
@@ -79,16 +75,16 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader):
 def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
     model = settings['model']
     optimizer = settings['optimizer']
-    criterion = settings['criterion']    
-    
+    criterion = settings['criterion']
+
     ctc_a2l_module = settings['ctc_a2l_module']
     ctc_v2l_module = settings['ctc_v2l_module']
     ctc_a2l_optimizer = settings['ctc_a2l_optimizer']
     ctc_v2l_optimizer = settings['ctc_v2l_optimizer']
     ctc_criterion = settings['ctc_criterion']
-    
+
     scheduler = settings['scheduler']
-    
+
 
     def train(model, optimizer, criterion, ctc_a2l_module, ctc_v2l_module, ctc_a2l_optimizer, ctc_v2l_optimizer, ctc_criterion):
         epoch_loss = 0
@@ -96,24 +92,24 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         num_batches = hyp_params.n_train // hyp_params.batch_size
         proc_loss, proc_size = 0, 0
         start_time = time.time()
-        for i_batch, (batch_X, batch_Y, batch_META) in enumerate(train_loader):
+        for i_batch, (batch_X, batch_Y, batch_META) in enumerate(train_loader, ):
             sample_ind, text, audio, vision = batch_X
             eval_attr = batch_Y.squeeze(-1)   # if num of labels is 1
-            
+
             model.zero_grad()
             if ctc_criterion is not None:
                 ctc_a2l_module.zero_grad()
                 ctc_v2l_module.zero_grad()
-                
+
             if hyp_params.use_cuda:
-                with torch.cuda.device(3):
-                    text, audio, vision, eval_attr = text.to(device), audio.to(device), vision.to(device), eval_attr.to(device)
+                with torch.cuda.device(0):
+                    text, audio, vision, eval_attr = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda()
                     if hyp_params.dataset == 'iemocap':
                         eval_attr = eval_attr.long()
-            
+
             batch_size = text.size(0)
             batch_chunk = hyp_params.batch_chunk
-            
+
             ######## CTC STARTS ######## Do not worry about this if not working on CTC
             if ctc_criterion is not None:
                 ctc_a2l_net = nn.DataParallel(ctc_a2l_module) if batch_size > 10 else ctc_a2l_module
@@ -121,7 +117,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
 
                 audio, a2l_position = ctc_a2l_net(audio) # audio now is the aligned to text
                 vision, v2l_position = ctc_v2l_net(vision)
-                
+
                 ## Compute the ctc loss
                 l_len, a_len, v_len = hyp_params.l_len, hyp_params.a_len, hyp_params.v_len
                 # Output Labels
@@ -131,7 +127,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 # Specifying each input length
                 a_length = torch.tensor([a_len]*batch_size).int().cpu()
                 v_length = torch.tensor([v_len]*batch_size).int().cpu()
-                
+
                 ctc_a2l_loss = ctc_criterion(a2l_position.transpose(0,1).cpu(), l_position, a_length, l_length)
                 ctc_v2l_loss = ctc_criterion(v2l_position.transpose(0,1).cpu(), l_position, v_length, l_length)
                 ctc_loss = ctc_a2l_loss + ctc_v2l_loss
@@ -139,7 +135,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             else:
                 ctc_loss = 0
             ######## CTC ENDS ########
-                
+
             combined_loss = 0
             # net = nn.DataParallel(model) if batch_size > 10 else model
             net = model
@@ -150,12 +146,12 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 audio_chunks = audio.chunk(batch_chunk, dim=0)
                 vision_chunks = vision.chunk(batch_chunk, dim=0)
                 eval_attr_chunks = eval_attr.chunk(batch_chunk, dim=0)
-                
+
                 for i in range(batch_chunk):
                     text_i, audio_i, vision_i = text_chunks[i], audio_chunks[i], vision_chunks[i]
                     eval_attr_i = eval_attr_chunks[i]
                     preds_i, hiddens_i = net(text_i, audio_i, vision_i)
-                    
+
                     if hyp_params.dataset == 'iemocap':
                         preds_i = preds_i.view(-1, 2)
                         eval_attr_i = eval_attr_i.view(-1)
@@ -175,16 +171,16 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 raw_loss = criterion(preds, eval_attr)
                 combined_loss = raw_loss + ctc_loss
                 combined_loss.backward()
-            
+
             if ctc_criterion is not None:
                 torch.nn.utils.clip_grad_norm_(ctc_a2l_module.parameters(), hyp_params.clip)
                 torch.nn.utils.clip_grad_norm_(ctc_v2l_module.parameters(), hyp_params.clip)
                 ctc_a2l_optimizer.step()
                 ctc_v2l_optimizer.step()
-            
+
             torch.nn.utils.clip_grad_norm_(model.parameters(), hyp_params.clip)
             optimizer.step()
-            
+
             proc_loss += raw_loss.item() * batch_size
             proc_size += batch_size
             epoch_loss += combined_loss.item() * batch_size
@@ -195,14 +191,14 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                       format(epoch, i_batch, num_batches, elapsed_time * 1000 / hyp_params.log_interval, avg_loss, optimizer.param_groups[0]["lr"] ))
                 proc_loss, proc_size = 0, 0
                 start_time = time.time()
-                
+
         return epoch_loss / hyp_params.n_train
 
     def evaluate(model, ctc_a2l_module, ctc_v2l_module, criterion, test=False):
         model.eval()
         loader = test_loader if test else valid_loader
         total_loss = 0.0
-    
+
         results = []
         truths = []
 
@@ -210,21 +206,21 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             for i_batch, (batch_X, batch_Y, batch_META) in enumerate(loader):
                 sample_ind, text, audio, vision = batch_X
                 eval_attr = batch_Y.squeeze(dim=-1) # if num of labels is 1
-            
+
                 if hyp_params.use_cuda:
-                    with torch.cuda.device(3):
-                        text, audio, vision, eval_attr = text.to(device), audio.to(device), vision.to(device), eval_attr.to(device)
+                    with torch.cuda.device(0):
+                        text, audio, vision, eval_attr = text.cuda(), audio.cuda(), vision.cuda(), eval_attr.cuda()
                         if hyp_params.dataset == 'iemocap':
                             eval_attr = eval_attr.long()
-                        
+
                 batch_size = text.size(0)
-                
+
                 if (ctc_a2l_module is not None) and (ctc_v2l_module is not None):
                     ctc_a2l_net = nn.DataParallel(ctc_a2l_module) if batch_size > 10 else ctc_a2l_module
                     ctc_v2l_net = nn.DataParallel(ctc_v2l_module) if batch_size > 10 else ctc_v2l_module
                     audio, _ = ctc_a2l_net(audio)     # audio aligned to text
                     vision, _ = ctc_v2l_net(vision)   # vision aligned to text
-                
+
                 # net = nn.DataParallel(model) if batch_size > 10 else model
                 net = model
                 # adj = torch.ones(batch_size, 30, 30).to(device)
@@ -238,7 +234,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 # Collect the results into dictionary
                 results.append(preds)
                 truths.append(eval_attr)
-                
+
         avg_loss = total_loss / (hyp_params.n_test if test else hyp_params.n_valid)
 
         results = torch.cat(results)
@@ -251,7 +247,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         train(model, optimizer, criterion, ctc_a2l_module, ctc_v2l_module, ctc_a2l_optimizer, ctc_v2l_optimizer, ctc_criterion)
         val_loss, _, _ = evaluate(model, ctc_a2l_module, ctc_v2l_module, criterion, test=False)
         test_loss, results, truths = evaluate(model, ctc_a2l_module, ctc_v2l_module, criterion, test=True)
-        
+
         end = time.time()
         duration = end-start
         scheduler.step(val_loss)    # Decay learning rate by validation loss
@@ -271,7 +267,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             print("-"*50)
             print('Epoch {:2d} | Time {:5.4f} sec | Valid Loss {:5.4f} | Test Loss {:5.4f} | f1 {} | acc {}'.format(epoch, duration, val_loss, test_loss, f1, acc))
             print("-"*50)
-        
+
         if val_loss < best_valid:
             print(f"Saved model at pre_trained_models/{hyp_params.name}.pt!")
             save_model(hyp_params, model, name=hyp_params.name)

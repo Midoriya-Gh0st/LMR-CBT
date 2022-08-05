@@ -55,5 +55,6 @@ class Multimodal_Datasets(Dataset):
             META = (self.meta[index][0].decode('UTF-8'), self.meta[index][1].decode('UTF-8'), self.meta[index][2].decode('UTF-8'))
         if self.data == 'iemocap':
             Y = torch.argmax(Y, dim=-1)
+            # input(Y)
         return X, Y, META
 

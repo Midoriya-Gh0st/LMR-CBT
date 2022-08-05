@@ -6,6 +6,12 @@ from src import train
 import warnings
 warnings.filterwarnings("ignore")
 
+print(torch.cuda.device_count())
+if not torch.cuda.is_available():
+    print("ERROR: no available GPU.")
+else:
+    print("CUDA: OK")
+
 parser = argparse.ArgumentParser(description='Multimodal Emotion Recognition')
 parser.add_argument('-f', default='', type=str)
 
@@ -22,7 +28,7 @@ parser.add_argument('--lonly', action='store_true',
                     help='use the crossmodal fusion into l (default: False)')
 parser.add_argument('--aligned', action='store_true',
                     help='consider aligned experiment or not (default: False)')
-parser.add_argument('--dataset', type=str, default='mosei_senti',
+parser.add_argument('--dataset', type=str, default='iemocap',
                     help='dataset to use (default: iemocap mosi mosei_senti)')
 parser.add_argument('--data_path', type=str, default='data',
                     help='path for storing the dataset')
@@ -115,10 +121,11 @@ print("Start loading the data....")
 train_data = get_data(args, dataset, 'train')
 valid_data = get_data(args, dataset, 'valid')
 test_data = get_data(args, dataset, 'test')
-   
-train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
-valid_loader = DataLoader(valid_data, batch_size=args.batch_size, shuffle=True)
-test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+
+DEF_DEVICE = 'cuda' if use_cuda else 'cpu'
+train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, generator=torch.Generator(device=DEF_DEVICE))
+valid_loader = DataLoader(valid_data, batch_size=args.batch_size, shuffle=True, generator=torch.Generator(device=DEF_DEVICE))
+test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True, generator=torch.Generator(device=DEF_DEVICE))
 
 print('Finish loading the data....')
 if not args.aligned:
